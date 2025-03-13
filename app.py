@@ -6,8 +6,8 @@ import pandas as pd
 import json
 from decimal import Decimal
 
-# 初始化 Dash 應用程式
-app = dash.Dash(__name__, external_stylesheets=[dbc.themes.BOOTSTRAP])
+# 初始化 Dash 應用程式，加入 suppress_callback_exceptions=True
+app = dash.Dash(__name__, external_stylesheets=[dbc.themes.BOOTSTRAP], suppress_callback_exceptions=True)
 app.title = "DynamoDB 工具"
 
 # AWS DynamoDB 客戶端
@@ -37,7 +37,55 @@ app.layout = html.Div([
             dcc.Tab(label="查詢表格", value="tab-query")
         ]),
 
-        html.Div(id="tabs-content")
+        html.Div(id="tabs-content", children=[
+            # 預先渲染這些元件
+            dbc.Card([
+                dbc.CardBody([
+                    html.H4("選擇表格", className="card-title"),
+                    dbc.Row([
+                        dbc.Col(
+                            dbc.Select(
+                                id="table-select",
+                                options=table_options,  # **直接載入表格列表**
+                                placeholder="選擇表格",
+                                className="mb-2"
+                            ),
+                            width=12
+                        ),
+                    ]),
+                    dbc.Button(
+                        "查看表格內容", 
+                        id="view-table-btn", 
+                        color="success", 
+                        className="mb-2"
+                    ),
+                ])
+            ], className="mb-4"),
+
+            # 預先渲染表格顯示區域
+            dbc.Card([
+                dbc.CardBody([
+                    html.H4(id="table-header", children="表格內容"),
+                    html.Div(id="table-data-container", children=[
+                        dash_table.DataTable(
+                            id="table-data",
+                            columns=[],
+                            data=[],
+                            style_table={'overflowX': 'auto'},
+                            style_cell={
+                                'padding': '8px',
+                                'textAlign': 'left'
+                            },
+                            style_header={
+                                'backgroundColor': '#f8f9fa',
+                                'fontWeight': 'bold'
+                            },
+                            page_size=10
+                        )
+                    ])
+                ])
+            ])
+        ])
     ])
 ])
 
