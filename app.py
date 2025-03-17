@@ -5,7 +5,6 @@ import boto3
 import pandas as pd
 import json
 from decimal import Decimal
-import subprocess
 
 # 初始化 Dash 應用程式，加入 suppress_callback_exceptions=True
 app = dash.Dash(__name__, external_stylesheets=[dbc.themes.BOOTSTRAP], suppress_callback_exceptions=True)
@@ -36,7 +35,6 @@ app.layout = html.Div([
         # **分頁設置**
         dcc.Tabs(id="tabs", value="tab-query", children=[
             dcc.Tab(label="查詢表格", value="tab-query"),
-            dcc.Tab(label="修改表格", value="tab-modify")  # 新增的分頁
         ]),
 
         html.Div(id="tabs-content")
@@ -99,37 +97,7 @@ def render_tab_content(tab):
             ])
         ])
     
-    elif tab == "tab-modify":  # 新增修改表格的內容
-        return html.Div([
-            dbc.Card([
-                dbc.CardBody([
-                    html.H4("選擇表格", className="card-title"),
-                    dbc.Row([
-                        dbc.Col(
-                            dbc.Select(
-                                id="modify-table-select",
-                                options=table_options,  # 直接載入表格列表
-                                placeholder="選擇表格",
-                                className="mb-2"
-                            ),
-                            width=12
-                        ),
-                    ]),
-                    html.Br(),
-
-                    # 表單來輸入物件的屬性
-                    html.H4("新增物件", className="card-title"),
-                    dbc.Row([
-                        dbc.Col(dbc.Input(id="student-id", placeholder="Student ID", type="text"), width=6),
-                        dbc.Col(dbc.Input(id="birthday", placeholder="Birthday (yyyy-mm-dd)", type="text"), width=6),
-                        dbc.Col(dbc.Input(id="height", placeholder="Height (cm)", type="text"), width=6),
-                    ], className="mb-2"),
-
-                    dbc.Button("新增物件", id="add-item-btn", color="primary", className="mb-2"),
-                    html.Div(id="item-status")
-                ])
-            ])
-        ])
+    
 
 
 # **查詢表格內容回調**
@@ -164,63 +132,6 @@ def view_table_content(n_clicks, table_name):
     
     except Exception as e:
         return f"查詢表格 '{table_name}' 失敗: {str(e)}", [], []
-
-
-# **新增物件回調**
-@callback(
-    Output("item-status", "children"),
-    Input("add-item-btn", "n_clicks"),
-    State("modify-table-select", "value"),
-    State("student-id", "value"),
-    State("birthday", "value"),
-    State("height", "value"),
-    prevent_initial_call=True
-)
-def add_item_to_table(n_clicks, table_name, student_id, birthday, height):
-    if not table_name or not student_id or not birthday or not height:
-        return "請填寫所有欄位！"
-    
-    try:
-        # 確保資料是字串格式
-        student_id = str(student_id).strip()
-        birthday = str(birthday).strip()
-        height = str(height).strip()
-        
-        # 檢查資料是否符合預期格式
-        if not student_id or not birthday or not height:
-            return "請確保每個欄位都有填寫且格式正確！"
-        
-        # 生成 DynamoDB put-item JSON 結構
-        item = {
-            "StudentID": {"S": student_id},
-            "Birthday": {"S": birthday},
-            "Height": {"S": height}
-        }
-        
-        # 轉換為 JSON 字符串
-        item_str = json.dumps(item, separators=(',', ':'))
-        
-        # 把 JSON 字串中的雙引號替換為兩個雙引號（轉義）
-        item_str_escaped = item_str.replace('"', '""')
-        
-        # 生成 AWS CLI 指令
-        aws_command = f"aws dynamodb put-item --table-name {table_name} --item \"{item_str_escaped}\""
-        
-        # 使用 subprocess 執行指令
-        result = subprocess.run(aws_command, shell=True, capture_output=True, text=True)
-        
-        # 檢查命令執行結果
-        if result.returncode == 0:
-            return f"成功新增物件：{student_id} 到表格 '{table_name}'"
-        else:
-            return f"新增物件失敗: {result.stderr}"
-    
-    except Exception as e:
-        return f"新增物件失敗: {str(e)}"
-
-
-
-
 
 if __name__ == '__main__':
     app.run_server(debug=True)
