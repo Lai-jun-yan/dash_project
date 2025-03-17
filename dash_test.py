@@ -1,46 +1,38 @@
-import dash
-from dash import dcc, html, Input, Output, dash_table
-import boto3
+from dash import Dash, dash_table, dcc, callback, Output, Input
 import pandas as pd
+import plotly.express as px
+import dash_mantine_components as dmc
 
-# 初始化 DynamoDB 客戶端
-dynamodb = boto3.client("dynamodb")
+df = pd.read_csv('https://raw.githubusercontent.com/plotly/datasets/master/gapminder2007.csv')
 
-# 建立 Dash 應用
-app = dash.Dash(__name__)
+app = Dash()
 
-# 取得所有表格
-table_options = [{"label": table, "value": table} for table in dynamodb.list_tables()["TableNames"]]
+app.layout = dmc.Container([
+    dmc.Title('My First App with Data, Graph, and Controls', color="blue", size="h3"),
+    dmc.RadioGroup(
+            [dmc.Radio(i, value=i) for i in  ['pop', 'lifeExp', 'gdpPercap']],
+            id='my-dmc-radio-item',
+            value='lifeExp',
+            size="sm"
+        ),
+    dmc.Grid([
+        dmc.Col([
+            dash_table.DataTable(data=df.to_dict('records'), page_size=12, style_table={'overflowX': 'auto'})
+        ], span=6),
+        dmc.Col([
+            dcc.Graph(figure={}, id='graph-placeholder')
+        ], span=6),
+    ]),
 
-app.layout = html.Div([
-    html.H1("Amazon Web Services DynamoDB", style={"textAlign": "center", "color": "#333", "marginBottom": "20px"}),
-    dcc.Dropdown(id="table-dropdown", options=table_options, placeholder="選擇 DynamoDB 表格", style={"width": "50%", "margin": "auto"}),
-    html.Div(id="table-content", style={"marginTop": "20px", "textAlign": "center"})
-], style={"fontFamily": "Arial, sans-serif", "width": "1000px", "margin": "auto", "padding": "20px", "boxShadow": "0px 4px 10px rgba(0, 0, 0, 0.1)"})
+], fluid=True)
 
-@app.callback(
-    Output("table-content", "children"),
-    Input("table-dropdown", "value")
+@callback(
+    Output(component_id='graph-placeholder', component_property='figure'),
+    Input(component_id='my-dmc-radio-item', component_property='value')
 )
-def display_table(table_name):
-    if not table_name:
-        return "請選擇一個表格"
-    
-    # 獲取表格資料
-    response = dynamodb.scan(TableName=table_name)
-    items = response["Items"]
+def update_graph(col_chosen):
+    fig = px.histogram(df, x='continent', y=col_chosen, histfunc='avg')
+    return fig
 
-    # 轉換為 Pandas DataFrame（簡化顯示）
-    df = pd.DataFrame([{k: list(v.values())[0] for k, v in item.items()} for item in items])
-    
-    return dash_table.DataTable(
-        columns=[{"name": col, "id": col} for col in df.columns],
-        data=df.to_dict("records"),
-        page_size=10,  # 設定分頁，每頁顯示 10 筆資料
-        style_table={"overflowX": "auto"},
-        style_header={"backgroundColor": "#f4f4f4", "fontWeight": "bold"},
-        style_cell={"border": "1px solid #ddd", "padding": "8px", "textAlign": "left"}
-    )
-
-if __name__ == "__main__":
-    app.run_server(debug=True)
+if __name__ == '__main__':
+    app.run(debug=True)
