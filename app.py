@@ -95,10 +95,20 @@ def render_tab_content(tab):
                             },
                             page_size=10
                         )
-                    ])
+                    ]),
+                    dbc.Button(
+                        "下載此表格",
+                        id="download-table-btn",
+                        color="success",
+                        className="mb-2",
+                        n_clicks=0,
+                        style={'display': 'none'}  # 預設隱藏
+                    ),
+                    dcc.Download(id="download-table")
                 ])
             ])
         ])
+    
     elif tab == "tab-upload":
         return html.Div([  
             dbc.Card([  
@@ -144,18 +154,19 @@ def render_tab_content(tab):
             ])
         ])
 
-# **查詢表格內容回調**
+# 查詢表格內容回調
 @callback(
     Output("table-header", "children"),
     Output("table-data", "columns"),
     Output("table-data", "data"),
+    Output("download-table-btn", "style"),  # 讓按鈕顯示或隱藏
     Input("view-table-btn", "n_clicks"),
     State("table-select", "value"),
     prevent_initial_call=True
 )
 def view_table_content(n_clicks, table_name):
     if not table_name:
-        return "請選擇表格", [], []
+        return "請選擇表格", [], [], {'display': 'none'}
     
     try:
         table = dynamodb.Table(table_name)
@@ -163,19 +174,55 @@ def view_table_content(n_clicks, table_name):
         items = response.get('Items', [])
         
         if not items:
-            return f"表格 '{table_name}' 內容 (空表格)", [], []
+            return f"表格 '{table_name}' 內容 (空表格)", [], [], {'display': 'none'}
         
-        # 將數據轉換為DataFrame格式
+        # 轉換為 DataFrame
         json_items = json.loads(json.dumps(items, cls=DecimalEncoder))
         df = pd.DataFrame(json_items)
         
         columns = [{"name": col, "id": col} for col in df.columns]
         data = df.to_dict('records')
-        
-        return f"表格 '{table_name}' 內容 ({len(data)} 筆資料)", columns, data
+
+        # 如果有資料，顯示下載按鈕
+        return f"表格 '{table_name}' 內容 ({len(data)} 筆資料)", columns, data, {'display': 'inline-block'}
     
     except Exception as e:
-        return f"查詢表格 '{table_name}' 失敗: {str(e)}", [], []
+        return f"查詢表格 '{table_name}' 失敗: {str(e)}", [], [], {'display': 'none'}
+
+
+# 下載csv檔
+@callback(
+    Output("download-table", "data"),
+    Input("download-table-btn", "n_clicks"),
+    State("table-select", "value"),
+    prevent_initial_call=True
+)
+def download_table(n_clicks, table_name):
+    if not table_name:
+        return dash.no_update
+
+    try:
+        table = dynamodb.Table(table_name)
+        response = table.scan()
+        items = response.get('Items', [])
+
+        if not items:
+            return dash.no_update  # 空表格，不執行下載
+
+        # 轉換為 DataFrame
+        json_items = json.loads(json.dumps(items, cls=DecimalEncoder))
+        df = pd.DataFrame(json_items)
+
+        # 轉換為 CSV 字串
+        csv_string = df.to_csv(index=False, encoding="utf-8-sig")
+
+        # 回傳 CSV 下載
+        return dcc.send_string(csv_string, filename=f"{table_name}.csv")
+
+    except Exception as e:
+        print(f"下載表格失敗: {str(e)}")
+        return dash.no_update
+
 
 # **上傳 CSV 檔案回調**
 @callback(
@@ -258,7 +305,7 @@ def upload_to_dynamodb(n_clicks, data, columns, filename):
         # 7. **上傳資料到 DynamoDB**
         for item in data:
             table.put_item(Item={k: Decimal(v) if isinstance(v, (int, float)) else v for k, v in item.items()})
-
+            
         return f"資料已成功上傳到 DynamoDB 表格 '{table_name}'！"
     
     except Exception as e:
