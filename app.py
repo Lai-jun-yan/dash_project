@@ -10,7 +10,7 @@ import io
 
 # 初始化 Dash 應用程式，加入 suppress_callback_exceptions=True
 app = dash.Dash(__name__, external_stylesheets=[dbc.themes.BOOTSTRAP], suppress_callback_exceptions=True)
-app.title = "DynamoDB 工具"
+app.title = "Dash project for Amazon Web Services DymanoDB"
 
 # AWS DynamoDB 客戶端
 dynamodb = boto3.resource('dynamodb')
@@ -253,7 +253,7 @@ def upload_file(contents, filename):
         return f"讀取檔案失敗: {str(e)}", [], [], {'display': 'none'}
 
 
-# 按鈕回調函數
+# 上傳資料到 DynamoDB
 @callback(
     Output("upload-to-dynamodb-btn", "children"),
     Input("upload-to-dynamodb-btn", "n_clicks"),
@@ -303,8 +303,10 @@ def upload_to_dynamodb(n_clicks, data, columns, filename):
         table.meta.client.get_waiter('table_exists').wait(TableName=table_name)
 
         # 7. **上傳資料到 DynamoDB**
-        for item in data:
-            table.put_item(Item={k: Decimal(v) if isinstance(v, (int, float)) else v for k, v in item.items()})
+        with table.batch_writer() as batch:
+            for item in data:
+                batch.put_item(Item={k: Decimal(v) if isinstance(v, (int, float)) else v for k, v in item.items()})
+
             
         return f"資料已成功上傳到 DynamoDB 表格 '{table_name}'！"
     
