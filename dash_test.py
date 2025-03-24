@@ -104,15 +104,14 @@ def upload_to_dynamodb(contents):
         # 插入資料到表格
         for i in range(len(df)):
             row = df.iloc[i]
-            table.put_item(
-                Item={
-                    column_names[0]: str(row[column_names[0]]),
-                    column_names[1]: int(row[column_names[1]]),
-                    column_names[2]: str(row[column_names[2]]),
-                    column_names[3]: str(row[column_names[3]]),
-                    column_names[4]: str(row[column_names[4]])
-                }
-            )
+            item = {}
+
+            for col in column_names:
+                if col == column_names[1]:  # 假設 Sort Key 是數字型別
+                    item[col] = int(row[col])
+                else:
+                    item[col] = str(row[col])
+            table.put_item(Item = item)
 
         return "資料已成功上傳到 DynamoDB！"
 
