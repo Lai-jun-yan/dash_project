@@ -1,5 +1,5 @@
 import dash
-from dash import dcc, html, Input, Output
+from dash import dcc, html, Input, Output, State, dash_table
 import pandas as pd
 import boto3
 import io
@@ -11,19 +11,14 @@ app = dash.Dash(__name__)
 # 創建 AWS DynamoDB 資源
 dynamodb = boto3.resource('dynamodb', region_name='us-east-1')
 
-# 創建表格的函數
 def create_table(dynamodb, table_name, column_names):
-    # 定義 Partition Key 和 Sort Key
     Partition_Key = column_names[0]
     Sort_Key = column_names[1]
-    
-    # 其他欄位的名稱
     other_columns = column_names[2:]
     
-    # 定義 KeySchema 和 AttributeDefinitions
     key_schema = [
-        {'AttributeName': Partition_Key, 'KeyType': 'HASH'},  # Partition Key
-        {'AttributeName': Sort_Key, 'KeyType': 'RANGE'}  # Sort Key
+        {'AttributeName': Partition_Key, 'KeyType': 'HASH'},
+        {'AttributeName': Sort_Key, 'KeyType': 'RANGE'}
     ]
     
     attribute_definitions = [
@@ -31,93 +26,100 @@ def create_table(dynamodb, table_name, column_names):
         {'AttributeName': Sort_Key, 'AttributeType': 'N'}
     ]
     
-    # 加入其他欄位的 AttributeDefinitions
     for col in other_columns:
         attribute_definitions.append({'AttributeName': col, 'AttributeType': 'S'})
     
-    # 設置二級索引
     global_secondary_indexes = []
     for col in other_columns:
         global_secondary_indexes.append({
-            'IndexName': f"{col}_Index",  # 二級索引的名稱
+            'IndexName': f"{col}_Index",
             'KeySchema': [
-                {'AttributeName': col, 'KeyType': 'HASH'},  # Partition Key for GSI
-                {'AttributeName': Sort_Key, 'KeyType': 'RANGE'}  # Sort Key for GSI
+                {'AttributeName': col, 'KeyType': 'HASH'},
+                {'AttributeName': Sort_Key, 'KeyType': 'RANGE'}
             ],
-            'Projection': {
-                'ProjectionType': 'ALL'  # 返回所有欄位
-            },
-            'ProvisionedThroughput': {
-                'ReadCapacityUnits': 5,
-                'WriteCapacityUnits': 5
-            }
+            'Projection': {'ProjectionType': 'ALL'},
+            'ProvisionedThroughput': {'ReadCapacityUnits': 5, 'WriteCapacityUnits': 5}
         })
     
-    # 創建表格
     table = dynamodb.create_table(
         TableName=table_name,
         KeySchema=key_schema,
         AttributeDefinitions=attribute_definitions,
-        ProvisionedThroughput={
-            'ReadCapacityUnits': 5,
-            'WriteCapacityUnits': 5
-        },
+        ProvisionedThroughput={'ReadCapacityUnits': 5, 'WriteCapacityUnits': 5},
         GlobalSecondaryIndexes=global_secondary_indexes
     )
     
     return table
 
-# 設計應用介面
 app.layout = html.Div([
-    # 上傳按鈕
+    html.H1("AWS DynamoDB", style={'textAlign': 'center', 'marginBottom': '20px'}),
+    
     dcc.Upload(
         id='upload-data',
-        children=html.Button('選擇 CSV 檔案'),
+        children=html.Button('選擇 CSV 檔案', style={'marginBottom': '10px'}),
         multiple=False
     ),
-    html.Div(id='upload-status', style={'margin-top': '20px'})
+    
+    html.Div(id='output-data-table', style={'marginBottom': '20px'}),
+    
+    html.Button('上傳至 DynamoDB', id='upload-button', style={'display': 'none'}),
+    html.Div(id='upload-status', style={'marginTop': '20px'})
 ])
 
-# 上傳資料到 DynamoDB 的回調
+@app.callback(
+    [Output('output-data-table', 'children'), Output('upload-button', 'style')],
+    [Input('upload-data', 'contents')]
+)
+def show_dataframe(contents):
+    if contents is None:
+        return "", {'display': 'none'}
+    
+    content_type, content_string = contents.split(',')
+    decoded = base64.b64decode(content_string)
+    df = pd.read_csv(io.StringIO(decoded.decode('utf-8')))
+    
+    table = dash_table.DataTable(
+        columns=[{'name': col, 'id': col} for col in df.columns],
+        data=df.to_dict('records'),
+        page_size=10
+    )
+    
+    return table, {'display': 'block'}
+
 @app.callback(
     Output('upload-status', 'children'),
-    Input('upload-data', 'contents')
+    Input('upload-button', 'n_clicks'),
+    State('upload-data', 'contents'),
+    State('upload-data', 'filename')
 )
-def upload_to_dynamodb(contents):
-    if contents is None:
+def upload_to_dynamodb(n_clicks, contents, filename):
+    if n_clicks is None or contents is None:
         return ""
-
+    
     try:
-        # 解碼 CSV 檔案內容
         content_type, content_string = contents.split(',')
         decoded = base64.b64decode(content_string)
         df = pd.read_csv(io.StringIO(decoded.decode('utf-8')))
-        
         column_names = df.columns.tolist()
-
-        # 呼叫 create_table 函數來創建表格
-        table = create_table(dynamodb, 'updated_rice_growth', column_names)
-
-        # 等待表格創建完成
+        
+        table_name = filename.split('.')[0]  # 取 CSV 檔案名稱作為表格名稱
+        table = create_table(dynamodb, table_name, column_names)
         table.wait_until_exists()
-
-        # 插入資料到表格
+        
         for i in range(len(df)):
             row = df.iloc[i]
             item = {}
-
+            
             for col in column_names:
-                if col == column_names[1]:  # 假設 Sort Key 是數字型別
+                if col == column_names[1]:
                     item[col] = int(row[col])
                 else:
                     item[col] = str(row[col])
-            table.put_item(Item = item)
-
-        return "資料已成功上傳到 DynamoDB！"
-
+            table.put_item(Item=item)
+        
+        return f"資料已成功上傳到 DynamoDB (表格名稱: {table_name})！"
     except Exception as e:
         return f"上傳失敗: {str(e)}"
-
 
 if __name__ == '__main__':
     app.run_server(debug=True)
