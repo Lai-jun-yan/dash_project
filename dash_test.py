@@ -62,7 +62,12 @@ app.layout = html.Div([
     ]),
 
     html.Div(id='tabs-content')
-])
+], style={
+    'fontFamily': 'Arial, sans-serif',
+    'backgroundColor': '#f4f6f8',
+    'minHeight': '100vh',
+    'padding': '30px'
+})
 
 #選擇分頁函式
 @app.callback(
@@ -75,32 +80,64 @@ def render_tab_content(tab):
         options = [{'label': t.name, 'value': t.name} for t in table_names]
 
         return html.Div([
-            html.H2("歡迎使用本網站！", style={'textAlign': 'center', 'marginTop': '30px'}),
-            html.P("請從下方選擇 DynamoDB 表格以查看內容：", style={'textAlign': 'center'}),
-
             html.Div([
+                html.H2("🎉 歡迎使用本網站！", style={'textAlign': 'center'}),
+                html.P("請從下方選擇 DynamoDB 表格以查看內容：", style={'textAlign': 'center'}),
                 dcc.Dropdown(
                     id='table-dropdown',
                     options=options,
                     placeholder='選擇一個 DynamoDB 表格',
-                    style={'width': '60%', 'margin': '0 auto'}
-                )
-            ], style={'textAlign': 'center', 'marginTop': '20px'}),
-
-            html.Div(id='table-info', style={'marginTop': '30px', 'padding': '0 50px'})
+                    style={'width': '60%', 'margin': '20px auto'}
+                ),
+                html.Div(id='table-info')
+            ], style={
+                'backgroundColor': 'white',
+                'borderRadius': '15px',
+                'boxShadow': '0 4px 8px rgba(0, 0, 0, 0.1)',
+                'padding': '30px',
+                'maxWidth': '1000px',
+                'margin': '0 auto'
+            })
         ])
+
     
     elif tab == 'tab-2':
         return html.Div([
-            dcc.Upload(
-                id='upload-data',
-                children=html.Button('選擇 CSV 檔案', style={'marginBottom': '10px'}),
-                multiple=False
-            ),
-            html.Div(id='output-data-table', style={'marginBottom': '20px'}),
-            html.Button('上傳至 DynamoDB', id='upload-button', style={'display': 'none'}),
-            html.Div(id='upload-status', style={'marginTop': '20px'})
+            html.Div([
+                html.H3("📤 上傳 CSV 檔案到 DynamoDB", style={'textAlign': 'center'}),
+                dcc.Upload(
+                    id='upload-data',
+                    children=html.Div([
+                        html.Button('選擇 CSV 檔案', style={
+                            'backgroundColor': '#28a745',
+                            'color': 'white',
+                            'padding': '10px 20px',
+                            'border': 'none',
+                            'borderRadius': '8px',
+                            'cursor': 'pointer'
+                        })
+                    ]),
+                    multiple=False,
+                    style={'textAlign': 'center', 'marginBottom': '20px'}
+                ),
+                html.Div(id='output-data-table'),
+                html.Div([
+                    html.Button('📤 上傳至 DynamoDB', id='upload-button',
+                                style={'display': 'none', 'backgroundColor': '#007bff', 'color': 'white',
+                                    'padding': '10px 20px', 'border': 'none',
+                                    'borderRadius': '8px', 'cursor': 'pointer'})
+                ], style={'textAlign': 'center'}),
+                html.Div(id='upload-status', style={'marginTop': '20px', 'textAlign': 'center'})
+            ], style={
+                'backgroundColor': 'white',
+                'borderRadius': '15px',
+                'boxShadow': '0 4px 8px rgba(0, 0, 0, 0.1)',
+                'padding': '30px',
+                'maxWidth': '1000px',
+                'margin': '0 auto'
+            })
         ])
+
 
 #查看已經存在的TABLE資訊
 @app.callback(
@@ -113,27 +150,76 @@ def show_table_content(table_name):
 
     try:
         table = dynamodb.Table(table_name)
+        table.load()  # 讀取最新的 table metadata
+
+        # 取得基本結構
+        key_schema = table.key_schema
+        attr_defs = table.attribute_definitions
+        gsi = table.global_secondary_indexes or []
+
+        # 取得資料內容
         response = table.scan()
         items = response.get('Items', [])
 
-        if not items:
-            return html.P("這個表格目前沒有資料。")
+        # 建立欄位資訊文字
+        def get_key_type(attr_name):
+            for key in key_schema:
+                if key['AttributeName'] == attr_name:
+                    return key['KeyType']
+            return ''
 
-        df = pd.DataFrame(items)
-        columns = [{'name': col, 'id': col} for col in df.columns]
+        attr_table = dash_table.DataTable(
+            columns=[
+                {'name': 'Attribute Name', 'id': 'AttributeName'},
+                {'name': 'Type', 'id': 'AttributeType'},
+                {'name': 'Key Type', 'id': 'KeyType'}
+            ],
+            data=[
+                {
+                    'AttributeName': attr['AttributeName'],
+                    'AttributeType': attr['AttributeType'],
+                    'KeyType': get_key_type(attr['AttributeName'])
+                } for attr in attr_defs
+            ],
+            style_table={'marginBottom': '20px'}
+        )
 
-        return html.Div([
-            html.H4(f"表格名稱：{table_name}"),
-            html.P(f"總筆數：{len(items)}"),
-            dash_table.DataTable(
-                columns=columns,
+        # 資料內容表格
+        item_table = None
+        if items:
+            df = pd.DataFrame(items)
+            item_table = dash_table.DataTable(
+                columns=[{'name': col, 'id': col} for col in df.columns],
                 data=df.to_dict('records'),
                 page_size=10,
                 style_table={'overflowX': 'auto'}
             )
+        else:
+            item_table = html.P("這個表格目前沒有資料。")
+
+        return html.Div([
+            html.Div([
+                html.H4(f"📄 表格名稱：{table_name}", style={'color': '#333'}),
+                html.H5("🔑 表格結構", style={'marginTop': '20px'}),
+                attr_table,
+                html.H5("📦 表格內容", style={'marginTop': '30px'}),
+                item_table,
+                html.Br(),
+                dcc.Download(id="download-csv"),
+                html.Button("📥 下載表格 CSV", id="download-button", n_clicks=0,
+                            style={'marginTop': '20px', 'backgroundColor': '#007bff', 'color': 'white', 'border': 'none',
+                                'padding': '10px 20px', 'borderRadius': '8px', 'cursor': 'pointer'}) if items else None
+            ], style={
+                'backgroundColor': '#fff',
+                'padding': '30px',
+                'borderRadius': '15px',
+                'boxShadow': '0 2px 6px rgba(0, 0, 0, 0.1)'
+            })
         ])
+
     except Exception as e:
         return html.P(f"讀取表格時發生錯誤：{str(e)}")
+
 
 #上傳TABLE
 @app.callback(
@@ -190,6 +276,26 @@ def upload_to_dynamodb(n_clicks, contents, filename):
         return f"資料已成功上傳到 DynamoDB (表格名稱: {table_name})！"
     except Exception as e:
         return f"上傳失敗: {str(e)}"
+
+@app.callback(
+    Output("download-csv", "data"),
+    Input("download-button", "n_clicks"),
+    State("table-dropdown", "value"),
+    prevent_initial_call=True
+)
+def download_table_as_csv(n_clicks, table_name):
+    if not table_name:
+        return dash.no_update
+
+    table = dynamodb.Table(table_name)
+    response = table.scan()
+    items = response.get('Items', [])
+    
+    if not items:
+        return dash.no_update
+
+    df = pd.DataFrame(items)
+    return dcc.send_data_frame(df.to_csv, filename=f"{table_name}.csv", index=False)
 
 if __name__ == '__main__':
     app.run_server(debug=True)
